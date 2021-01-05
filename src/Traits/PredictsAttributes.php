@@ -69,4 +69,9 @@ trait PredictsAttributes
     {
         return [];
     }
+
+    public function registerPredictableTrainingScopes(): array
+    {
+        return [];
+    }
 }

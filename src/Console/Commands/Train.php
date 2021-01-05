@@ -101,7 +101,10 @@ class Train extends Command
             $samples = [];
             $classes = [];
 
-            $model->query()->chunk(100, function ($instances) use ($attributesToTrainFrom, $classAttribute, &$samples, &$classes) {
+            $totalRecords = $model->query()->scopes($model->registerPredictableTrainingScopes())->count();
+            $this->line('Training on '.$totalRecords.' records');
+
+            $model->query()->scopes($model->registerPredictableTrainingScopes())->chunk(100, function ($instances) use ($attributesToTrainFrom, $classAttribute, &$samples, &$classes) {
                 foreach ($instances as $instance) {
                     $samples[] = DatasetHelper::buildSample($instance, $attributesToTrainFrom);
 

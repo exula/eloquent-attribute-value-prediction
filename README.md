@@ -238,3 +238,27 @@ This means you can use any estimator is supports.
 
 See the [Choosing an Estimator](https://docs.rubixml.com/en/latest/choosing-an-estimator.html)
 page for a list of all available estimators you can use for attribute prediction.
+
+### Using Eloquent Scopes
+
+If you want to limit your training to a subset of your Eloquent models, you can identify an array of [Eloquent Local Scopes](https://laravel.com/docs/8.x/eloquent#local-scopes) to use during the training process.
+
+To do this, you need to add a 'registerPredictableTrainingScopes' method to your model.
+This will return an array of named local scopes.
+
+```php
+public function scopeNotEmpty($query)
+{
+    return $query->where('speal_length', '!=', '')
+        ->where('petal_length', '!=', '');
+}
+
+public function registerPredictableTrainingScopes(): array
+{
+    return [
+        'notEmpty',
+    ];
+}
+```
+
+In the above example we are using the `notEmpty` local scope on the model to determine which Eloquent Models will be used during training to build the model. 
