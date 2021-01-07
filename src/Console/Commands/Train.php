@@ -8,6 +8,7 @@ use DivineOmega\EloquentAttributeValuePrediction\Interfaces\HasPredictableAttrib
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\App;
+use Rubix\ML\Backends\Amp;
 use Rubix\ML\Classifiers\KDNeighbors;
 use Rubix\ML\Classifiers\KNearestNeighbors;
 use Rubix\ML\Classifiers\MultilayerPerceptron;
@@ -85,8 +86,11 @@ class Train extends Command
         // Get estimators
         $estimators = $model->registerEstimators();
 
+        $samples = [];
+        $classes = [];
+
         foreach($attributes as $classAttribute => $attributesToTrainFrom) {
-            $this->line('Training model for '.$classAttribute.' attribute from '.count($attributesToTrainFrom).' other attribute(s)...');
+            $this->line('Training model for <fg=green>'.$classAttribute.'</> attribute from '.count($attributesToTrainFrom).' other attribute(s)...');
 
             $modelPath = PathHelper::getModelPath(get_class($model), $classAttribute);
 
@@ -98,13 +102,19 @@ class Train extends Command
 
             $estimator = $this->getEstimator($modelPath, $baseEstimator);
 
-            $samples = [];
-            $classes = [];
+            $estimator->setLogger(new BlackHole());
 
             $totalRecords = $model->query()->scopes($model->registerPredictableTrainingScopes())->count();
-            $this->line('Training on '.$totalRecords.' records');
+            $this->line('Training on <fg=green>'.$totalRecords.'</> records');
 
-            $model->query()->scopes($model->registerPredictableTrainingScopes())->chunk(100, function ($instances) use ($attributesToTrainFrom, $classAttribute, &$samples, &$classes) {
+            $bar = $this->output->createProgressBar($totalRecords);
+
+            $bar->start();
+
+            $datasets = [];
+
+            $model->query()->scopes($model->registerPredictableTrainingScopes())->chunk(100, function ($instances) use ($attributesToTrainFrom, $classAttribute, &$estimator, &$bar,  &$samples, &$classes, &$datasets) {
+
                 foreach ($instances as $instance) {
                     $samples[] = DatasetHelper::buildSample($instance, $attributesToTrainFrom);
 
@@ -117,19 +127,51 @@ class Train extends Command
                     }
                     $classes[] = $classValue;
                 }
+
+                $bar->advance(100);
+
             });
+            $bar->finish();
+
+            $this->newLine();
+            $this->line('Starting to train for <fg=green>'.$classAttribute.'</>.');
 
             $dataset = new Labeled($samples, $classes);
 
-            $estimator->train($dataset);
+            //Determine if this estimator supports Online training
+            if( $baseEstimator instanceof \Rubix\ML\Online) {
 
-            $estimator->setLogger(new BlackHole());
+                $foldsNo = 10;
+                $folds = $dataset->fold($foldsNo);
+
+                $this->info('Starting online training');
+
+                $bar = $this->output->createProgressBar($foldsNo);
+                $estimator->train($folds[0]);
+                $bar->advance();
+                for ($i = 1; $i < $foldsNo; $i++) {
+                    $estimator->partial($folds[$i]);
+                    $bar->advance();
+
+                }
+
+                $bar->finish();
+            } else {
+                $this->info('Starting full dataset training');
+                $estimator->train($dataset);
+            }
+
+            $this->newLine();
+            $this->line('Saving model for <fg=green>'.$classAttribute.'</>.');
             $estimator->save();
 
-            $this->line('Training completed for '.$classAttribute.'.');
+            $this->newLine();
+
+            $this->line('Training completed for <fg=green>'.$classAttribute.'</>.');
         }
 
-        $this->line('All training completed.');
+        $this->info('All training completed.');
+
     }
 
     private function getEstimator(string $modelPath, Estimator $baseEstimator): Estimator
